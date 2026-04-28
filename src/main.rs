@@ -34,6 +34,12 @@ enum Commands {
         /// Show what would be done without making any changes
         #[arg(long)]
         dry_run: bool,
+        /// Delete existing files when conflicts occur
+        #[arg(long)]
+        delete: bool,
+        /// Backup existing files when conflicts occur
+        #[arg(long)]
+        backup: bool,
     },
     /// Show the current status of the environment
     Status,
@@ -51,7 +57,9 @@ fn main() -> Result<()> {
             scoop_only,
             dotfiles_only,
             dry_run,
-        } => cmd_sync(&cli.config, scoop_only, dotfiles_only, dry_run),
+            delete,
+            backup,
+        } => cmd_sync(&cli.config, scoop_only, dotfiles_only, dry_run, delete, backup),
     }
 }
 
@@ -116,7 +124,18 @@ fn cmd_status(config_path: &PathBuf) -> Result<()> {
 }
 
 /// Run the full sync process.
-fn cmd_sync(config_path: &PathBuf, scoop_only: bool, dotfiles_only: bool, dry_run: bool) -> Result<()> {
+fn cmd_sync(config_path: &PathBuf, scoop_only: bool, dotfiles_only: bool, dry_run: bool, delete: bool, backup: bool) -> Result<()> {
+    if delete && backup {
+        anyhow::bail!("Cannot specify both --delete and --backup");
+    }
+    let conflict = if delete {
+        dotfiles::ConflictAction::Delete
+    } else if backup {
+        dotfiles::ConflictAction::Backup
+    } else {
+        dotfiles::ConflictAction::Prompt
+    };
+
     let config = config::Config::load(config_path)?;
     let base_dir = config_path
         .parent()
@@ -158,7 +177,7 @@ fn cmd_sync(config_path: &PathBuf, scoop_only: bool, dotfiles_only: bool, dry_ru
 
     // Sync dotfiles
     if do_dotfiles {
-        dotfiles::sync(&config.dotfiles, &base_dir, dry_run)?;
+        dotfiles::sync(&config.dotfiles, &base_dir, dry_run, &conflict)?;
         println!();
     }
 
