@@ -1,48 +1,62 @@
 # home-sync
 
-> A declarative user environment manager for Windows — sync dotfiles and Scoop packages with a single config file.
+> Windows 声明式用户环境管理器 — 通过一个配置文件同步 Scoop 软件包和 Dotfiles。
 
-## Why?
+## 为什么需要？
 
-Windows users face a painful ritual every time they reinstall the OS, switch machines, or set up a new workstation:
+每次重装系统、换电脑或配置新工作站时，Windows 用户都要面对：
 
-- Manually copying config files (`.gitconfig`, editor settings, terminal profiles, etc.)
-- Remembering and installing dozens of tools one by one
-- No single source of truth for "my environment"
+- 手动复制各种配置文件（`.gitconfig`、编辑器设置、终端配置等）
+- 逐个回忆并安装几十个工具
+- 没有"我的环境"的单一事实来源
 
-**home-sync** solves this with a declarative TOML config file. One command, and your entire user environment is restored.
+**home-sync** 用一个声明式 TOML 配置文件解决这些问题。一条命令，恢复整个用户环境。
 
-## Features
+## 功能特性
 
-- 📦 **Scoop Integration** — Declare buckets and packages; home-sync installs them automatically
-- 🔗 **Dotfile Symlinks** — Map repo files to their Windows target paths with automatic backup
-- 🚀 **One Command** — `home-sync sync` does everything
-- 📋 **Status Check** — `home-sync status` shows what's linked and what's missing
-- 🎯 **Selective Sync** — `--scoop-only` or `--dotfiles-only` flags
-- 🪶 **Lightweight** — Single binary, no runtime dependencies
+- 📦 **Scoop 管理** — 声明 buckets 和 packages，自动安装缺失的、卸载多余的（需确认）
+- 🔗 **Dotfile 符号链接** — 将仓库文件映射到 Windows 目标路径，冲突时自动备份
+- ⚡ **批量对比** — 一次获取已安装列表，内存中对比，快速高效
+- 🚀 **一条命令** — `home-sync sync` 完成所有同步
+- 📋 **状态查看** — `home-sync status` 查看当前环境状态
+- 🎯 **选择性同步** — `--scoop-only` 或 `--dotfiles-only` 仅同步指定部分
+- 🪶 **轻量** — 单个二进制文件，无运行时依赖
 
-## Quick Start
+## 快速开始
 
-### 1. Install
+### 1. 安装
 
 ```bash
 cargo install --path .
 ```
 
-### 2. Initialize config
+### 2. 初始化配置
 
 ```bash
 home-sync init
 ```
 
-This creates a `config.toml` from the example template.
+从示例模板创建 `config.toml`。
 
-### 3. Edit `config.toml`
+### 3. 编辑 `config.toml`
 
 ```toml
 [scoop]
-buckets = ["main", "extras", "versions"]
-packages = ["git", "7zip", "ripgrep", "bat", "neovim"]
+buckets = [
+    "main",
+    "extras",
+    { name = "my-bucket", source = "https://github.com/user/my-bucket" },
+]
+
+packages = [
+    "git",
+    "7zip",
+    "ripgrep",
+    "bat",
+    "neovim",
+    # 指定 bucket 来源
+    { name = "zig", bucket = "main" },
+]
 
 [[dotfiles]]
 source = "dotfiles/.gitconfig"
@@ -53,13 +67,14 @@ source = "dotfiles/settings.json"
 target = "~/AppData/Roaming/Code/User/settings.json"
 ```
 
-### 4. Add your dotfiles
+### 4. 添加 Dotfiles
 
-Place your actual config files in the `dotfiles/` directory:
+将实际配置文件放入 `dotfiles/` 目录：
 
 ```
 home-sync/
 ├── config.toml
+├── config.example.toml
 ├── dotfiles/
 │   ├── .gitconfig
 │   ├── settings.json
@@ -67,54 +82,85 @@ home-sync/
 └── src/
 ```
 
-### 5. Sync everything
+### 5. 同步
 
 ```bash
 home-sync sync
 ```
 
-## Commands
+## 命令
 
-| Command | Description |
-|---------|-------------|
-| `home-sync init` | Create a `config.toml` from the example template |
-| `home-sync sync` | Full sync: install Scoop packages + link dotfiles |
-| `home-sync sync --scoop-only` | Only sync Scoop packages |
-| `home-sync sync --dotfiles-only` | Only sync dotfiles |
-| `home-sync sync --dry-run` | Show what would be done without making changes |
-| `home-sync status` | Show current environment status |
+| 命令 | 说明 |
+|------|------|
+| `home-sync init` | 从示例模板创建 `config.toml` |
+| `home-sync sync` | 完整同步：Scoop 包 + Dotfiles |
+| `home-sync sync --scoop-only` | 仅同步 Scoop |
+| `home-sync sync --dotfiles-only` | 仅同步 Dotfiles |
+| `home-sync sync --dry-run` | 预览模式，不实际执行 |
+| `home-sync status` | 查看当前环境状态 |
 
-### Global Options
+### 全局选项
 
-| Option | Description |
-|--------|-------------|
-| `-c, --config <PATH>` | Path to config file (default: `config.toml`) |
+| 选项 | 说明 |
+|------|------|
+| `-c, --config <PATH>` | 配置文件路径（默认：`config.toml`） |
 
-## How It Works
+## 工作原理
 
-### Scoop Sync
+### Scoop 同步
 
-1. Checks if Scoop is installed; if not, installs it via the official PowerShell installer
-2. Adds any missing Scoop buckets
-3. Installs any missing packages (already-installed packages are skipped)
+1. 检查 Scoop 是否已安装，未安装则通过官方 PowerShell 安装器自动安装
+2. **Buckets 同步：** 添加缺失的 bucket，移除未声明的 bucket（需用户确认）
+3. **Packages 同步：** 一次 `scoop list` 获取已安装列表，内存中对比：
+   - 安装缺失的包
+   - 卸载未声明的包（`scoop uninstall --purge`，需用户确认）
 
-### Dotfile Sync
+### Dotfile 同步
 
-1. For each `[[dotfiles]]` entry, resolves `~` to the user's home directory
-2. Creates parent directories for the target path if needed
-3. If the target already exists as the correct symlink → skip
-4. If the target exists but is different → back it up with `.bak` extension
-5. Creates a symlink from the repo source to the target path
+1. 解析 `~` 为用户主目录
+2. 自动创建目标路径的父目录
+3. 目标已是正确的符号链接 → 跳过
+4. 目标已存在但不同 → 备份为 `.bak` 后创建新链接
+5. 目标不存在 → 直接创建符号链接
 
-## Example Config
+## 配置格式
 
-See [`config.example.toml`](config.example.toml) for a full annotated example.
+### Bucket 声明
 
-## Requirements
+```toml
+buckets = [
+    "main",                    # 简单名称
+    "extras",
+    { name = "my-bucket", source = "https://github.com/user/my-bucket" },  # 自定义源
+]
+```
+
+### Package 声明
+
+```toml
+packages = [
+    "git",                     # 简单名称（从默认 bucket 安装）
+    "neovim",
+    { name = "zig", bucket = "main" },       # 指定 bucket
+    { name = "my-tool", bucket = "my-bucket" },
+]
+```
+
+### Dotfile 声明
+
+```toml
+[[dotfiles]]
+source = "dotfiles/.gitconfig"              # 仓库中的路径（相对于项目根目录）
+target = "~/.gitconfig"                     # Windows 目标路径（支持 ~）
+```
+
+完整示例参见 [`config.example.toml`](config.example.toml)。
+
+## 环境要求
 
 - Windows 10/11
-- [Scoop](https://scoop.sh/) (auto-installed if missing)
-- Developer Mode enabled (required for symlinks without admin privileges)
+- [Scoop](https://scoop.sh/)（缺失时自动安装）
+- 开启开发者模式（用于无需管理员权限创建符号链接）
 
 ## License
 
