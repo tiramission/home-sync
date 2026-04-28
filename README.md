@@ -117,11 +117,20 @@ home-sync sync
 
 ### Dotfile 同步
 
+**`type = "link"`（默认）— 文件复制**
+
 1. 解析 `~` 为用户主目录
 2. 自动创建目标路径的父目录
-3. 目标已是正确的符号链接 → 跳过
-4. 目标已存在但不同 → 备份为 `.bak` 后创建新链接
-5. 目标不存在 → 直接创建符号链接
+3. 目标已存在且内容相同 → 跳过
+4. 目标已存在但内容不同 → 备份为 `.bak` 后覆写
+5. 目标不存在 → 直接复制
+
+**`type = "persist"` — 符号链接**
+
+1. 解析为 `~/scoop/persist/<target>`
+2. 目标已是正确的符号链接 → 跳过
+3. 目标已存在但不同 → 备份为 `.bak` 后创建新链接
+4. 目标不存在 → 直接创建符号链接
 
 ## 配置格式
 
@@ -162,8 +171,8 @@ type = "persist"
 ```
 
 `type` 可选值：
-- `link`（默认）— 普通符号链接，`target` 支持 `~` 展开
-- `persist` — 链接到 `~/scoop/persist/<target>`，Scoop 更新时不会覆盖
+- `link`（默认）— 文件复制到 `target`，内容不同时自动备份并覆写
+- `persist` — 符号链接到 `~/scoop/persist/<target>`，Scoop 更新时不会覆盖
 
 完整示例参见 [`config.example.toml`](config.example.toml)。
 

@@ -13,7 +13,35 @@ fn target_label(entry: &DotfileEntry) -> String {
     }
 }
 
-/// Sync a single dotfile: create parent dirs and symlink source → target.
+/// Generate a backup path for the given target.
+/// e.g. `file.ini` → `file.ini.bak`, `file` → `file.bak`
+fn backup_path(target: &Path) -> std::path::PathBuf {
+    let mut name = target
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    name.push_str(".bak");
+    target.with_file_name(name)
+}
+
+/// Check if two files have the same content.
+fn files_equal(a: &Path, b: &Path) -> Result<bool> {
+    let a_meta = fs::metadata(a)
+        .with_context(|| format!("Failed to read metadata: {}", a.display()))?;
+    let b_meta = fs::metadata(b)
+        .with_context(|| format!("Failed to read metadata: {}", b.display()))?;
+    // Quick check: different sizes means different content
+    if a_meta.len() != b_meta.len() {
+        return Ok(false);
+    }
+    let a_content = fs::read(a).with_context(|| format!("Failed to read: {}", a.display()))?;
+    let b_content = fs::read(b).with_context(|| format!("Failed to read: {}", b.display()))?;
+    Ok(a_content == b_content)
+}
+
+/// Sync a single dotfile entry.
+/// - `link` type: copy source → target (overwrite if content differs, backup existing)
+/// - `persist` type: symlink source → target
 fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> {
     let source = base_dir.join(&entry.source);
     let target = entry.resolve_target()?;
@@ -37,31 +65,112 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
         }
     }
 
-    // If target already exists
-    if target.exists() || target.is_symlink() {
-        // Check if it's already a symlink pointing to the correct source
-        if target.is_symlink() {
-            if let Ok(existing) = fs::read_link(&target) {
-                if existing == source {
-                    println!(
-                        "  {} Already linked: {} → {}",
-                        "✓".green(),
-                        label,
-                        entry.source
-                    );
-                    return Ok(());
-                }
-            }
+    match entry.dotfile_type {
+        DotfileType::Link => sync_copy(&source, &target, &label, &entry.source, dry_run),
+        DotfileType::Persist => sync_symlink(&source, &target, &label, &entry.source, dry_run),
+    }
+}
+
+/// Sync via file copy (for `type = "link"`).
+fn sync_copy(
+    source: &Path,
+    target: &Path,
+    label: &str,
+    source_name: &str,
+    dry_run: bool,
+) -> Result<()> {
+    if target.exists() {
+        // Content matches → skip
+        if files_equal(source, target)? {
+            println!(
+                "  {} Already up to date: {}",
+                "✓".green(),
+                label,
+            );
+            return Ok(());
         }
 
-        // Target exists but is not the correct symlink — back it up
-        let backup = target.with_extension(format!(
-            "{}.bak",
-            target
-                .extension()
-                .map(|e| e.to_string_lossy().to_string())
-                .unwrap_or_default()
-        ));
+        // Content differs → backup and overwrite
+        let backup = backup_path(target);
+        if dry_run {
+            println!(
+                "  {} Would back up: {} → {}",
+                "⚠".yellow(),
+                label,
+                backup.display()
+            );
+            println!(
+                "  {} Would overwrite: {} (content differs)",
+                "→".cyan(),
+                label,
+            );
+        } else {
+            println!(
+                "  {} Backing up: {} → {}",
+                "⚠".yellow(),
+                label,
+                backup.display()
+            );
+            fs::rename(target, &backup)
+                .with_context(|| format!("Failed to backup: {}", target.display()))?;
+            fs::copy(source, target)
+                .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
+            println!(
+                "  {} Overwritten: {} ← {}",
+                "→".cyan(),
+                label,
+                source_name,
+            );
+        }
+    } else {
+        // Target doesn't exist → copy
+        if dry_run {
+            println!(
+                "  {} Would copy: {} ← {}",
+                "→".cyan(),
+                label,
+                source_name,
+            );
+        } else {
+            fs::copy(source, target)
+                .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
+            println!(
+                "  {} Copied: {} ← {}",
+                "→".cyan(),
+                label,
+                source_name,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Sync via symlink (for `type = "persist"`).
+fn sync_symlink(
+    source: &Path,
+    target: &Path,
+    label: &str,
+    source_name: &str,
+    dry_run: bool,
+) -> Result<()> {
+    // If target is already a symlink pointing to the correct source
+    if target.is_symlink() {
+        if let Ok(existing) = fs::read_link(target) {
+            if existing == source {
+                println!(
+                    "  {} Already linked: {} → {}",
+                    "✓".green(),
+                    label,
+                    source_name,
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    // Target exists but is not the correct symlink — back it up
+    if target.exists() || target.is_symlink() {
+        let backup = backup_path(target);
         if dry_run {
             println!(
                 "  {} Would back up existing: {} → {}",
@@ -76,7 +185,7 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
                 label,
                 backup.display()
             );
-            fs::rename(&target, &backup)
+            fs::rename(target, &backup)
                 .with_context(|| format!("Failed to backup: {}", target.display()))?;
         }
     }
@@ -86,7 +195,7 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
             "  {} Would link: {} → {}",
             "→".cyan(),
             label,
-            entry.source
+            source_name,
         );
         return Ok(());
     }
@@ -94,19 +203,18 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
     // Create the symlink
     #[cfg(windows)]
     {
-        // On Windows, use directory symlink for dirs, file symlink for files
         if source.is_dir() {
-            std::os::windows::fs::symlink_dir(&source, &target)
+            std::os::windows::fs::symlink_dir(source, target)
                 .with_context(|| format!("Failed to create directory symlink: {}", target.display()))?;
         } else {
-            std::os::windows::fs::symlink_file(&source, &target)
+            std::os::windows::fs::symlink_file(source, target)
                 .with_context(|| format!("Failed to create file symlink: {}", target.display()))?;
         }
     }
 
     #[cfg(not(windows))]
     {
-        std::os::unix::fs::symlink(&source, &target)
+        std::os::unix::fs::symlink(source, target)
             .with_context(|| format!("Failed to create symlink: {}", target.display()))?;
     }
 
@@ -114,7 +222,7 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
         "  {} Linked: {} → {}",
         "→".cyan(),
         label,
-        entry.source
+        source_name,
     );
     Ok(())
 }
@@ -147,34 +255,49 @@ pub fn status(dotfiles: &[DotfileEntry], base_dir: &Path) -> Result<()> {
             continue;
         }
 
-        if target.is_symlink() {
-            if let Ok(existing) = fs::read_link(&target) {
-                if existing == source {
+        match entry.dotfile_type {
+            DotfileType::Link => {
+                if target.exists() {
+                    match files_equal(&source, &target) {
+                        Ok(true) => println!("  {} {} (up to date)", "✓".green(), label),
+                        Ok(false) => println!("  {} {} (content differs)", "⚠".yellow(), label),
+                        Err(_) => println!("  {} {} (unreadable)", "✗".red(), label),
+                    }
+                } else {
+                    println!("  {} {} (not synced)", "○".dimmed(), label);
+                }
+            }
+            DotfileType::Persist => {
+                if target.is_symlink() {
+                    if let Ok(existing) = fs::read_link(&target) {
+                        if existing == source {
+                            println!(
+                                "  {} {} → {}",
+                                "✓".green(),
+                                label,
+                                entry.source
+                            );
+                        } else {
+                            println!(
+                                "  {} {} (linked to different source: {})",
+                                "✗".red(),
+                                label,
+                                existing.display()
+                            );
+                        }
+                    } else {
+                        println!("  {} {} (unreadable symlink)", "✗".red(), label);
+                    }
+                } else if target.exists() {
                     println!(
-                        "  {} {} → {}",
-                        "✓".green(),
-                        label,
-                        entry.source
+                        "  {} {} (exists but not a symlink)",
+                        "⚠".yellow(),
+                        label
                     );
                 } else {
-                    println!(
-                        "  {} {} (linked to different source: {})",
-                        "✗".red(),
-                        label,
-                        existing.display()
-                    );
+                    println!("  {} {} (not linked)", "○".dimmed(), label);
                 }
-            } else {
-                println!("  {} {} (unreadable symlink)", "✗".red(), label);
             }
-        } else if target.exists() {
-            println!(
-                "  {} {} (exists but not a symlink)",
-                "⚠".yellow(),
-                label
-            );
-        } else {
-            println!("  {} {} (not linked)", "○".dimmed(), label);
         }
     }
     Ok(())
