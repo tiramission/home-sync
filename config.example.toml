@@ -41,14 +41,19 @@ packages = [
 ]
 
 # Dotfiles 声明
-# 每个条目定义一个符号链接映射
-# source: 仓库中的文件路径（相对于本项目根目录）
-# target: 目标路径（根据 type 决定如何解析）
-# type: "link"（默认）或 "persist"
-#   - link: target 为绝对路径，支持 ~ 展开
-#   - persist: target 为相对于 ~/scoop/persist/ 的路径
+# 每个条目定义一个文件同步映射
+#
+# 字段说明：
+#   source:   仓库中的文件路径（相对于本项目根目录）
+#   target:   目标路径（根据 type 决定如何解析）
+#   type:     "file"（默认）或 "persist"
+#     - file:    target 为绝对路径，支持 ~ 展开
+#     - persist: target 为相对于 ~/scoop/persist/ 的路径
+#   behavior: "copy"（默认）或 "link"
+#     - copy: 复制文件到目标路径，内容不同时备份并覆写
+#     - link: 创建符号链接
 
-# 默认 type = "link"，可省略
+# 默认 type = "file"，behavior = "copy"，均可省略
 [[dotfiles]]
 source = "dotfiles/.gitconfig"
 target = "~/.gitconfig"
@@ -69,11 +74,27 @@ target = "~/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/Local
 source = "dotfiles/starship.toml"
 target = "~/.config/starship.toml"
 
+# 使用符号链接而非复制
+# [[dotfiles]]
+# source = "dotfiles/some-config"
+# target = "~/.config/some-config"
+# behavior = "link"
+
 # Scoop persist 示例
 # type = "persist" 将文件链接到 ~/scoop/persist/<target>
 # Scoop 更新应用时不会覆盖 persist 目录中的文件
 #
 # [[dotfiles]]
+# source = "dotfiles/mihomo/config.yaml"
+# target = "mihomo/config.yaml"
+# type = "persist"
+#   → 链接到 ~/scoop/persist/mihomo/config.yaml
+#
+# [[dotfiles]]
+# source = "dotfiles/neovim/init.lua"
+# target = "neovim/init.lua"
+# type = "persist"
+#   → 链接到 ~/scoop/persist/neovim/init.lua
 # source = "dotfiles/mihomo/config.yaml"
 # target = "mihomo/config.yaml"
 # type = "persist"

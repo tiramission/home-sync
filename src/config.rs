@@ -85,15 +85,26 @@ pub struct ScoopConfig {
     pub packages: Vec<PackageEntry>,
 }
 
-/// Dotfile type — determines how the target path is resolved.
+/// Dotfile target type — determines how the target path is resolved.
 #[derive(Debug, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum DotfileType {
-    /// Regular symlink: target is an absolute path (supports `~` expansion).
+    /// Regular file: target is an absolute path (supports `~` expansion).
     #[default]
     Link,
     /// Scoop persist: target is relative to `~/scoop/persist/`.
     Persist,
+}
+
+/// Dotfile sync behavior — determines how the file is synced.
+#[derive(Debug, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum DotfileBehavior {
+    /// Copy the file to the target path.
+    #[default]
+    Copy,
+    /// Create a symlink at the target path.
+    Link,
 }
 
 /// A single dotfile mapping: source (in repo) → target (on disk).
@@ -101,12 +112,15 @@ pub enum DotfileType {
 pub struct DotfileEntry {
     pub source: String,
     /// Target path. Interpretation depends on `type`:
-    /// - `link` (default): absolute path, supports `~` expansion
+    /// - `file` (default): absolute path, supports `~` expansion
     /// - `persist`: relative to `~/scoop/persist/`
     pub target: String,
-    /// Dotfile type: "link" (default) or "persist".
+    /// Dotfile target type: "link" (default) or "persist".
     #[serde(default, rename = "type")]
     pub dotfile_type: DotfileType,
+    /// Sync behavior: "copy" (default) or "link".
+    #[serde(default)]
+    pub behavior: DotfileBehavior,
 }
 
 impl DotfileEntry {

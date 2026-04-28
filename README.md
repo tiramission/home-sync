@@ -15,7 +15,7 @@
 ## 功能特性
 
 - 📦 **Scoop 管理** — 声明 buckets 和 packages，自动安装缺失的、卸载多余的（需确认）
-- 🔗 **Dotfile 符号链接** — 将仓库文件映射到 Windows 目标路径，冲突时自动备份
+- 📄 **Dotfile 同步** — 复制或符号链接仓库文件到 Windows 目标路径，冲突时自动备份
 - ⚡ **批量对比** — 一次获取已安装列表，内存中对比，快速高效
 - 🚀 **一条命令** — `home-sync sync` 完成所有同步
 - 📋 **状态查看** — `home-sync status` 查看当前环境状态
@@ -117,7 +117,7 @@ home-sync sync
 
 ### Dotfile 同步
 
-**`type = "link"`（默认）— 文件复制**
+**`behavior = "copy"`（默认）— 文件复制**
 
 1. 解析 `~` 为用户主目录
 2. 自动创建目标路径的父目录
@@ -125,9 +125,9 @@ home-sync sync
 4. 目标已存在但内容不同 → 备份为 `.bak` 后覆写
 5. 目标不存在 → 直接复制
 
-**`type = "persist"` — 符号链接**
+**`behavior = "link"` — 符号链接**
 
-1. 解析为 `~/scoop/persist/<target>`
+1. 自动创建目标路径的父目录
 2. 目标已是正确的符号链接 → 跳过
 3. 目标已存在但不同 → 备份为 `.bak` 后创建新链接
 4. 目标不存在 → 直接创建符号链接
@@ -159,9 +159,16 @@ packages = [
 
 ```toml
 # type = "link"（默认，可省略）：target 为绝对路径，支持 ~ 展开
+# behavior = "copy"（默认，可省略）：复制文件到目标路径
 [[dotfiles]]
 source = "dotfiles/.gitconfig"              # 仓库中的路径（相对于项目根目录）
 target = "~/.gitconfig"                     # Windows 目标路径（支持 ~）
+
+# 使用符号链接而非复制
+[[dotfiles]]
+source = "dotfiles/some-config"
+target = "~/.config/some-config"
+behavior = "link"
 
 # type = "persist"：target 为相对于 ~/scoop/persist/ 的路径
 [[dotfiles]]
@@ -170,9 +177,13 @@ target = "mihomo/config.yaml"               # → ~/scoop/persist/mihomo/config.
 type = "persist"
 ```
 
-`type` 可选值：
-- `link`（默认）— 文件复制到 `target`，内容不同时自动备份并覆写
-- `persist` — 符号链接到 `~/scoop/persist/<target>`，Scoop 更新时不会覆盖
+`type` — 目标路径类型：
+- `link`（默认）— `target` 为绝对路径，支持 `~` 展开
+- `persist` — `target` 为相对于 `~/scoop/persist/` 的路径
+
+`behavior` — 同步方式：
+- `copy`（默认）— 复制文件到目标路径，内容不同时自动备份并覆写
+- `link` — 创建符号链接
 
 完整示例参见 [`config.example.toml`](config.example.toml)。
 

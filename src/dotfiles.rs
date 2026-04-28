@@ -3,7 +3,7 @@ use colored::Colorize;
 use std::fs;
 use std::path::Path;
 
-use crate::config::{DotfileEntry, DotfileType};
+use crate::config::{DotfileBehavior, DotfileEntry, DotfileType};
 
 /// Get a display label for the target.
 fn target_label(entry: &DotfileEntry) -> String {
@@ -65,9 +65,9 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
         }
     }
 
-    match entry.dotfile_type {
-        DotfileType::Link => sync_copy(&source, &target, &label, &entry.source, dry_run),
-        DotfileType::Persist => sync_symlink(&source, &target, &label, &entry.source, dry_run),
+    match entry.behavior {
+        DotfileBehavior::Copy => sync_copy(&source, &target, &label, &entry.source, dry_run),
+        DotfileBehavior::Link => sync_symlink(&source, &target, &label, &entry.source, dry_run),
     }
 }
 
@@ -255,8 +255,8 @@ pub fn status(dotfiles: &[DotfileEntry], base_dir: &Path) -> Result<()> {
             continue;
         }
 
-        match entry.dotfile_type {
-            DotfileType::Link => {
+        match entry.behavior {
+            DotfileBehavior::Copy => {
                 if target.exists() {
                     match files_equal(&source, &target) {
                         Ok(true) => println!("  {} {} (up to date)", "✓".green(), label),
@@ -267,7 +267,7 @@ pub fn status(dotfiles: &[DotfileEntry], base_dir: &Path) -> Result<()> {
                     println!("  {} {} (not synced)", "○".dimmed(), label);
                 }
             }
-            DotfileType::Persist => {
+            DotfileBehavior::Link => {
                 if target.is_symlink() {
                     if let Ok(existing) = fs::read_link(&target) {
                         if existing == source {
