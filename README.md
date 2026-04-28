@@ -158,7 +158,7 @@ packages = [
 ### Dotfile 声明
 
 ```toml
-# type = "link"（默认，可省略）：target 为绝对路径，支持 ~ 展开
+# type = "file"（默认，可省略）：target 为绝对路径，支持 ~ 展开
 # behavior = "copy"（默认，可省略）：复制文件到目标路径
 [[dotfiles]]
 source = "dotfiles/.gitconfig"              # 仓库中的路径（相对于项目根目录）
@@ -178,7 +178,7 @@ type = "persist"
 ```
 
 `type` — 目标路径类型：
-- `link`（默认）— `target` 为绝对路径，支持 `~` 展开
+- `file`（默认）— `target` 为绝对路径，支持 `~` 展开
 - `persist` — `target` 为相对于 `~/scoop/persist/` 的路径
 
 `behavior` — 同步方式：

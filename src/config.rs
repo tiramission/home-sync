@@ -91,7 +91,7 @@ pub struct ScoopConfig {
 pub enum DotfileType {
     /// Regular file: target is an absolute path (supports `~` expansion).
     #[default]
-    Link,
+    File,
     /// Scoop persist: target is relative to `~/scoop/persist/`.
     Persist,
 }
@@ -115,7 +115,7 @@ pub struct DotfileEntry {
     /// - `file` (default): absolute path, supports `~` expansion
     /// - `persist`: relative to `~/scoop/persist/`
     pub target: String,
-    /// Dotfile target type: "link" (default) or "persist".
+    /// Dotfile target type: "file" (default) or "persist".
     #[serde(default, rename = "type")]
     pub dotfile_type: DotfileType,
     /// Sync behavior: "copy" (default) or "link".
@@ -127,7 +127,7 @@ impl DotfileEntry {
     /// Resolve the effective target path for this dotfile entry.
     pub fn resolve_target(&self) -> Result<PathBuf> {
         match self.dotfile_type {
-            DotfileType::Link => Config::resolve_target(&self.target),
+            DotfileType::File => Config::resolve_target(&self.target),
             DotfileType::Persist => {
                 let home = dirs::home_dir().context("Could not determine home directory")?;
                 Ok(home.join("scoop").join("persist").join(&self.target))

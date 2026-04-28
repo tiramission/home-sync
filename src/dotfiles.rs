@@ -9,7 +9,7 @@ use crate::config::{DotfileBehavior, DotfileEntry, DotfileType};
 fn target_label(entry: &DotfileEntry) -> String {
     match entry.dotfile_type {
         DotfileType::Persist => format!("persist:{}", entry.target),
-        DotfileType::Link => entry.target.clone(),
+        DotfileType::File => entry.target.clone(),
     }
 }
 
