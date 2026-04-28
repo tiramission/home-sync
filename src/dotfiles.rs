@@ -3,14 +3,13 @@ use colored::Colorize;
 use std::fs;
 use std::path::Path;
 
-use crate::config::DotfileEntry;
+use crate::config::{DotfileEntry, DotfileType};
 
-/// Get a display label for the target (persist or target).
+/// Get a display label for the target.
 fn target_label(entry: &DotfileEntry) -> String {
-    if !entry.persist.is_empty() {
-        format!("persist:{}", entry.persist)
-    } else {
-        entry.target.clone()
+    match entry.dotfile_type {
+        DotfileType::Persist => format!("persist:{}", entry.target),
+        DotfileType::Link => entry.target.clone(),
     }
 }
 

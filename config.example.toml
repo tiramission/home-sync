@@ -43,7 +43,12 @@ packages = [
 # Dotfiles 声明
 # 每个条目定义一个符号链接映射
 # source: 仓库中的文件路径（相对于本项目根目录）
-# target: Windows 上的目标路径（支持 ~ 表示用户主目录）
+# target: 目标路径（根据 type 决定如何解析）
+# type: "link"（默认）或 "persist"
+#   - link: target 为绝对路径，支持 ~ 展开
+#   - persist: target 为相对于 ~/scoop/persist/ 的路径
+
+# 默认 type = "link"，可省略
 [[dotfiles]]
 source = "dotfiles/.gitconfig"
 target = "~/.gitconfig"
@@ -65,16 +70,17 @@ source = "dotfiles/starship.toml"
 target = "~/.config/starship.toml"
 
 # Scoop persist 示例
-# 使用 persist 字段将文件链接到 ~/scoop/persist/<app>/ 目录下
-# 这样 Scoop 在更新应用时不会覆盖你的配置文件
-# persist 路径格式: "<app-name>/<relative-path>"
+# type = "persist" 将文件链接到 ~/scoop/persist/<target>
+# Scoop 更新应用时不会覆盖 persist 目录中的文件
 #
 # [[dotfiles]]
 # source = "dotfiles/mihomo/config.yaml"
-# persist = "mihomo/config.yaml"
+# target = "mihomo/config.yaml"
+# type = "persist"
 #   → 链接到 ~/scoop/persist/mihomo/config.yaml
 #
 # [[dotfiles]]
 # source = "dotfiles/neovim/init.lua"
-# persist = "neovim/init.lua"
+# target = "neovim/init.lua"
+# type = "persist"
 #   → 链接到 ~/scoop/persist/neovim/init.lua

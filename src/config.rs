@@ -85,36 +85,39 @@ pub struct ScoopConfig {
     pub packages: Vec<PackageEntry>,
 }
 
+/// Dotfile type — determines how the target path is resolved.
+#[derive(Debug, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum DotfileType {
+    /// Regular symlink: target is an absolute path (supports `~` expansion).
+    #[default]
+    Link,
+    /// Scoop persist: target is relative to `~/scoop/persist/`.
+    Persist,
+}
+
 /// A single dotfile mapping: source (in repo) → target (on disk).
 #[derive(Debug, Deserialize)]
 pub struct DotfileEntry {
     pub source: String,
-    /// Target path on disk. Supports `~` for home directory.
-    /// Mutually exclusive with `persist`.
-    #[serde(default)]
+    /// Target path. Interpretation depends on `type`:
+    /// - `link` (default): absolute path, supports `~` expansion
+    /// - `persist`: relative to `~/scoop/persist/`
     pub target: String,
-    /// Scoop persist path relative to `~/scoop/persist/`.
-    /// Mutually exclusive with `target`.
-    /// Example: "mihomo/config.yaml" → `~/scoop/persist/mihomo/config.yaml`
-    #[serde(default)]
-    pub persist: String,
+    /// Dotfile type: "link" (default) or "persist".
+    #[serde(default, rename = "type")]
+    pub dotfile_type: DotfileType,
 }
 
 impl DotfileEntry {
     /// Resolve the effective target path for this dotfile entry.
-    /// If `persist` is set, resolves to `~/scoop/persist/<persist>`.
-    /// Otherwise, resolves `target` with `~` expansion.
     pub fn resolve_target(&self) -> Result<PathBuf> {
-        if !self.persist.is_empty() {
-            let home = dirs::home_dir().context("Could not determine home directory")?;
-            Ok(home.join("scoop").join("persist").join(&self.persist))
-        } else if !self.target.is_empty() {
-            Config::resolve_target(&self.target)
-        } else {
-            anyhow::bail!(
-                "Dotfile entry must have either 'target' or 'persist' set for source: {}",
-                self.source
-            );
+        match self.dotfile_type {
+            DotfileType::Link => Config::resolve_target(&self.target),
+            DotfileType::Persist => {
+                let home = dirs::home_dir().context("Could not determine home directory")?;
+                Ok(home.join("scoop").join("persist").join(&self.target))
+            }
         }
     }
 }

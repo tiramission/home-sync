@@ -149,19 +149,21 @@ packages = [
 ### Dotfile 声明
 
 ```toml
-# 使用 target 指定绝对路径（支持 ~ 展开）
+# type = "link"（默认，可省略）：target 为绝对路径，支持 ~ 展开
 [[dotfiles]]
 source = "dotfiles/.gitconfig"              # 仓库中的路径（相对于项目根目录）
 target = "~/.gitconfig"                     # Windows 目标路径（支持 ~）
 
-# 使用 persist 指定 Scoop persist 目录下的路径
-# 自动解析为 ~/scoop/persist/<persist>
+# type = "persist"：target 为相对于 ~/scoop/persist/ 的路径
 [[dotfiles]]
 source = "dotfiles/mihomo/config.yaml"
-persist = "mihomo/config.yaml"              # → ~/scoop/persist/mihomo/config.yaml
+target = "mihomo/config.yaml"               # → ~/scoop/persist/mihomo/config.yaml
+type = "persist"
 ```
 
-`target` 和 `persist` 二选一，不能同时设置。
+`type` 可选值：
+- `link`（默认）— 普通符号链接，`target` 支持 `~` 展开
+- `persist` — 链接到 `~/scoop/persist/<target>`，Scoop 更新时不会覆盖
 
 完整示例参见 [`config.example.toml`](config.example.toml)。
 
