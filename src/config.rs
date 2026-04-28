@@ -103,8 +103,16 @@ pub enum DotfileBehavior {
     /// Copy the file to the target path.
     #[default]
     Copy,
-    /// Create a symlink at the target path.
-    Link,
+    /// Deep-merge the file into the target path (JSON/YAML).
+    Merge,
+}
+
+/// File format for merge behavior.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MergeFormat {
+    Json,
+    Yaml,
 }
 
 /// A single dotfile mapping: source (in repo) → target (on disk).
@@ -118,9 +126,11 @@ pub struct DotfileEntry {
     /// Dotfile target type: "file" (default) or "persist".
     #[serde(default, rename = "type")]
     pub dotfile_type: DotfileType,
-    /// Sync behavior: "copy" (default) or "link".
+    /// Sync behavior: "copy" (default) or "merge".
     #[serde(default)]
     pub behavior: DotfileBehavior,
+    /// File format for merge behavior: "json" or "yaml".
+    pub format: Option<MergeFormat>,
 }
 
 impl DotfileEntry {
@@ -133,6 +143,17 @@ impl DotfileEntry {
                 Ok(home.join("scoop").join("persist").join(&self.target))
             }
         }
+    }
+
+    /// Validate the entry configuration.
+    pub fn validate(&self) -> Result<()> {
+        if self.behavior == DotfileBehavior::Merge && self.format.is_none() {
+            anyhow::bail!(
+                "Dotfile entry '{}' uses merge behavior but missing `format` (must be \"json\" or \"yaml\")",
+                self.source
+            );
+        }
+        Ok(())
     }
 }
 

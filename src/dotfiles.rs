@@ -4,7 +4,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use crate::config::{DotfileBehavior, DotfileEntry, DotfileType};
+use crate::config::{DotfileBehavior, DotfileEntry, DotfileType, MergeFormat};
 
 /// How to handle existing target files during sync.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,35 +17,28 @@ pub enum ConflictAction {
     Backup,
 }
 
-/// Normalize a path by stripping the `\\?\` UNC prefix that Windows `canonicalize` adds.
-fn normalize_path(path: &Path) -> PathBuf {
-    let s = path.to_string_lossy();
-    if let Some(rest) = s.strip_prefix(r"\\?\") {
-        PathBuf::from(rest)
-    } else {
-        path.to_path_buf()
+/// Prompt the user to choose a conflict resolution.
+fn prompt_conflict(label: &str) -> Result<Option<ConflictAction>> {
+    print!(
+        "  {} Target exists: {} — [d]elete / [b]ackup / [s]kip? ",
+        "?".yellow(),
+        label,
+    );
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    match input.trim().to_lowercase().as_str() {
+        "d" | "delete" => Ok(Some(ConflictAction::Delete)),
+        "b" | "backup" => Ok(Some(ConflictAction::Backup)),
+        _ => Ok(None),
     }
 }
 
-/// Resolve the conflict action, prompting the user if needed.
-fn resolve_conflict(action: &ConflictAction, label: &str) -> Result<ConflictAction> {
+/// Resolve the conflict action. Returns `None` if the user chooses to skip.
+fn resolve_conflict(action: &ConflictAction, label: &str) -> Result<Option<ConflictAction>> {
     match action {
-        ConflictAction::Prompt => {
-            print!(
-                "  {} Target exists: {} — [d]elete / [b]ackup / [s]kip? ",
-                "?".yellow(),
-                label,
-            );
-            io::stdout().flush()?;
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-            match input.trim().to_lowercase().as_str() {
-                "d" | "delete" => Ok(ConflictAction::Delete),
-                "b" | "backup" => Ok(ConflictAction::Backup),
-                _ => Ok(ConflictAction::Prompt), // skip
-            }
-        }
-        other => Ok(*other),
+        ConflictAction::Prompt => prompt_conflict(label),
+        other => Ok(Some(*other)),
     }
 }
 
@@ -59,7 +52,7 @@ fn target_label(entry: &DotfileEntry) -> String {
 
 /// Generate a backup path for the given target.
 /// e.g. `file.ini` → `file.ini.bak`, `file` → `file.bak`
-fn backup_path(target: &Path) -> std::path::PathBuf {
+fn backup_path(target: &Path) -> PathBuf {
     let mut name = target
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
@@ -74,7 +67,6 @@ fn files_equal(a: &Path, b: &Path) -> Result<bool> {
         .with_context(|| format!("Failed to read metadata: {}", a.display()))?;
     let b_meta = fs::metadata(b)
         .with_context(|| format!("Failed to read metadata: {}", b.display()))?;
-    // Quick check: different sizes means different content
     if a_meta.len() != b_meta.len() {
         return Ok(false);
     }
@@ -83,27 +75,85 @@ fn files_equal(a: &Path, b: &Path) -> Result<bool> {
     Ok(a_content == b_content)
 }
 
+/// Resolve conflict and apply delete or backup to the target. Returns `Ok(true)` if
+/// the conflict was resolved (target removed/backed up), `Ok(false)` if skipped.
+fn resolve_and_apply(
+    conflict: &ConflictAction,
+    target: &Path,
+    label: &str,
+) -> Result<bool> {
+    match resolve_conflict(conflict, label)? {
+        Some(ConflictAction::Delete) => {
+            fs::remove_file(target)
+                .with_context(|| format!("Failed to delete: {}", target.display()))?;
+            Ok(true)
+        }
+        Some(ConflictAction::Backup) => {
+            let backup = backup_path(target);
+            fs::rename(target, &backup)
+                .with_context(|| format!("Failed to backup: {}", target.display()))?;
+            Ok(true)
+        }
+        Some(ConflictAction::Prompt) => unreachable!(),
+        None => {
+            println!("  {} Skipped: {}", "○".dimmed(), label);
+            Ok(false)
+        }
+    }
+}
+
+/// Deep-merge two JSON values. Source values overwrite target values for conflicting keys;
+/// nested objects are merged recursively; arrays are replaced by source.
+fn deep_merge_json(target: serde_json::Value, source: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match (target, source) {
+        (Value::Object(mut t_map), Value::Object(s_map)) => {
+            for (key, s_val) in s_map {
+                match t_map.remove(&key) {
+                    Some(t_val) => { t_map.insert(key, deep_merge_json(t_val, s_val)); }
+                    None => { t_map.insert(key, s_val); }
+                }
+            }
+            Value::Object(t_map)
+        }
+        (_target, source) => source,
+    }
+}
+
+/// Deep-merge two YAML values. Same semantics as JSON merge.
+fn deep_merge_yaml(target: serde_yaml::Value, source: serde_yaml::Value) -> serde_yaml::Value {
+    use serde_yaml::Value;
+    match (target, source) {
+        (Value::Mapping(mut t_map), Value::Mapping(s_map)) => {
+            for (key, s_val) in s_map {
+                let t_val = t_map.remove(&key);
+                let merged = match t_val {
+                    Some(t) => deep_merge_yaml(t, s_val),
+                    None => s_val,
+                };
+                t_map.insert(key, merged);
+            }
+            Value::Mapping(t_map)
+        }
+        (_target, source) => source,
+    }
+}
+
 /// Sync a single dotfile entry.
-/// - `link` type: copy source → target (overwrite if content differs, backup existing)
-/// - `persist` type: symlink source → target
 fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool, conflict: &ConflictAction) -> Result<()> {
+    entry.validate()?;
+
     let source = base_dir.join(&entry.source);
     let source = source.canonicalize()
         .with_context(|| format!("Failed to resolve source path: {}", source.display()))?;
     let target = entry.resolve_target()?;
     let label = target_label(entry);
 
-    // Ensure the source file exists
     if !source.exists() {
-        println!(
-            "  {} Source not found: {} (skipping)",
-            "⚠".yellow(),
-            &entry.source
-        );
+        println!("  {} Source not found: {} (skipping)", "⚠".yellow(), &entry.source);
         return Ok(());
     }
 
-    // Create parent directory for target if needed
     if !dry_run {
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)
@@ -113,11 +163,11 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool, conflict: &Con
 
     match entry.behavior {
         DotfileBehavior::Copy => sync_copy(&source, &target, &label, &entry.source, dry_run, conflict),
-        DotfileBehavior::Link => sync_symlink(&source, &target, &label, &entry.source, dry_run, conflict),
+        DotfileBehavior::Merge => sync_merge(&source, &target, &label, &entry.source, dry_run, entry.format.unwrap()),
     }
 }
 
-/// Sync via file copy (for `type = "link"`).
+/// Sync via file copy.
 fn sync_copy(
     source: &Path,
     target: &Path,
@@ -126,211 +176,99 @@ fn sync_copy(
     dry_run: bool,
     conflict: &ConflictAction,
 ) -> Result<()> {
-    if target.exists() {
-        // If target is a symlink, always replace it
-        if target.is_symlink() {
-            let backup = backup_path(target);
-            if dry_run {
-                println!(
-                    "  {} Would replace symlink: {} → {}",
-                    "⚠".yellow(),
-                    label,
-                    backup.display()
-                );
-                println!(
-                    "  {} Would copy: {} ← {}",
-                    "→".cyan(),
-                    label,
-                    source_name,
-                );
-            } else {
-                let action = resolve_conflict(conflict, label)?;
-                match action {
-                    ConflictAction::Delete => {
-                        fs::remove_file(target)
-                            .with_context(|| format!("Failed to delete: {}", target.display()))?;
-                        fs::copy(source, target)
-                            .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
-                        println!("  {} Deleted & copied: {} ← {}", "→".cyan(), label, source_name);
-                    }
-                    ConflictAction::Backup => {
-                        fs::rename(target, &backup)
-                            .with_context(|| format!("Failed to backup: {}", target.display()))?;
-                        fs::copy(source, target)
-                            .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
-                        println!("  {} Backed up & copied: {} ← {}", "→".cyan(), label, source_name);
-                    }
-                    ConflictAction::Prompt => {
-                        println!("  {} Skipped: {}", "○".dimmed(), label);
-                    }
-                }
-            }
-            return Ok(());
-        }
-
-        // Content matches → skip
-        if files_equal(source, target)? {
-            println!(
-                "  {} Already up to date: {}",
-                "✓".green(),
-                label,
-            );
-            return Ok(());
-        }
-
-        // Content differs → resolve conflict
+    // Target doesn't exist → simple copy
+    if !target.exists() {
         if dry_run {
-            let backup = backup_path(target);
-            println!(
-                "  {} Would back up: {} → {}",
-                "⚠".yellow(),
-                label,
-                backup.display()
-            );
-            println!(
-                "  {} Would overwrite: {} (content differs)",
-                "→".cyan(),
-                label,
-            );
-        } else {
-            let action = resolve_conflict(conflict, label)?;
-            match action {
-                ConflictAction::Delete => {
-                    fs::remove_file(target)
-                        .with_context(|| format!("Failed to delete: {}", target.display()))?;
-                    fs::copy(source, target)
-                        .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
-                    println!("  {} Deleted & copied: {} ← {}", "→".cyan(), label, source_name);
-                }
-                ConflictAction::Backup => {
-                    let backup = backup_path(target);
-                    fs::rename(target, &backup)
-                        .with_context(|| format!("Failed to backup: {}", target.display()))?;
-                    fs::copy(source, target)
-                        .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
-                    println!("  {} Backed up & copied: {} ← {}", "→".cyan(), label, source_name);
-                }
-                ConflictAction::Prompt => {
-                    println!("  {} Skipped: {}", "○".dimmed(), label);
-                }
-            }
-        }
-    } else {
-        // Target doesn't exist → copy
-        if dry_run {
-            println!(
-                "  {} Would copy: {} ← {}",
-                "→".cyan(),
-                label,
-                source_name,
-            );
+            println!("  {} Would copy: {} ← {}", "→".cyan(), label, source_name);
         } else {
             fs::copy(source, target)
                 .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
-            println!(
-                "  {} Copied: {} ← {}",
-                "→".cyan(),
-                label,
-                source_name,
-            );
+            println!("  {} Copied: {} ← {}", "→".cyan(), label, source_name);
         }
+        return Ok(());
     }
+
+    // Content matches → skip
+    if files_equal(source, target)? {
+        println!("  {} Already up to date: {}", "✓".green(), label);
+        return Ok(());
+    }
+
+    // Content differs → resolve conflict
+    if dry_run {
+        println!("  {} Would overwrite: {} (content differs)", "→".cyan(), label);
+    } else if resolve_and_apply(conflict, target, label)? {
+        fs::copy(source, target)
+            .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
+        println!("  {} Copied: {} ← {}", "→".cyan(), label, source_name);
+    }
+
     Ok(())
 }
 
-/// Sync via symlink (for `type = "persist"`).
-fn sync_symlink(
+/// Sync via deep merge (JSON or YAML).
+fn sync_merge(
     source: &Path,
     target: &Path,
     label: &str,
     source_name: &str,
     dry_run: bool,
-    conflict: &ConflictAction,
+    format: MergeFormat,
 ) -> Result<()> {
-    // If target is already a symlink pointing to the correct source
-    if target.is_symlink() {
-        if let Ok(existing) = fs::read_link(target) {
-            if normalize_path(&existing) == normalize_path(source) {
-                println!(
-                    "  {} Already linked: {} → {}",
-                    "✓".green(),
-                    label,
-                    source_name,
-                );
-                return Ok(());
-            }
-        }
-    }
-
-    // Target exists but is not the correct symlink — resolve conflict
-    if target.exists() || target.is_symlink() {
+    // Target doesn't exist → simple copy
+    if !target.exists() {
         if dry_run {
-            let backup = backup_path(target);
-            println!(
-                "  {} Would back up existing: {} → {}",
-                "⚠".yellow(),
-                label,
-                backup.display()
-            );
+            println!("  {} Would copy (new): {} ← {}", "→".cyan(), label, source_name);
         } else {
-            let action = resolve_conflict(conflict, label)?;
-            match action {
-                ConflictAction::Delete => {
-                    if target.is_symlink() {
-                        fs::remove_file(target)
-                            .with_context(|| format!("Failed to delete: {}", target.display()))?;
-                    } else {
-                        fs::remove_file(target)
-                            .with_context(|| format!("Failed to delete: {}", target.display()))?;
-                    }
-                }
-                ConflictAction::Backup => {
-                    let backup = backup_path(target);
-                    fs::rename(target, &backup)
-                        .with_context(|| format!("Failed to backup: {}", target.display()))?;
-                }
-                ConflictAction::Prompt => {
-                    println!("  {} Skipped: {}", "○".dimmed(), label);
-                    return Ok(());
-                }
-            }
+            fs::copy(source, target)
+                .with_context(|| format!("Failed to copy: {} → {}", source_name, label))?;
+            println!("  {} Copied (new): {} ← {}", "→".cyan(), label, source_name);
         }
-    }
-
-    if dry_run {
-        println!(
-            "  {} Would link: {} → {}",
-            "→".cyan(),
-            label,
-            source_name,
-        );
         return Ok(());
     }
 
-    // Create the symlink
-    #[cfg(windows)]
-    {
-        if source.is_dir() {
-            std::os::windows::fs::symlink_dir(source, target)
-                .with_context(|| format!("Failed to create directory symlink: {}", target.display()))?;
-        } else {
-            std::os::windows::fs::symlink_file(source, target)
-                .with_context(|| format!("Failed to create file symlink: {}", target.display()))?;
+    // Read source content
+    let source_content = fs::read_to_string(source)
+        .with_context(|| format!("Failed to read source: {}", source.display()))?;
+
+    // Read target content
+    let target_content = fs::read_to_string(target)
+        .with_context(|| format!("Failed to read target: {}", target.display()))?;
+
+    // Compute merged result
+    let merged = match format {
+        MergeFormat::Json => {
+            let src: serde_json::Value = serde_json::from_str(&source_content)
+                .with_context(|| format!("Failed to parse source JSON: {}", source.display()))?;
+            let tgt: serde_json::Value = serde_json::from_str(&target_content)
+                .with_context(|| format!("Failed to parse target JSON: {}", target.display()))?;
+            let result = deep_merge_json(tgt, src);
+            serde_json::to_string_pretty(&result)?
         }
+        MergeFormat::Yaml => {
+            let src: serde_yaml::Value = serde_yaml::from_str(&source_content)
+                .with_context(|| format!("Failed to parse source YAML: {}", source.display()))?;
+            let tgt: serde_yaml::Value = serde_yaml::from_str(&target_content)
+                .with_context(|| format!("Failed to parse target YAML: {}", target.display()))?;
+            let result = deep_merge_yaml(tgt, src);
+            serde_yaml::to_string(&result)?
+        }
+    };
+
+    // Compare with current target
+    if target_content == merged {
+        println!("  {} Already up to date: {}", "✓".green(), label);
+        return Ok(());
     }
 
-    #[cfg(not(windows))]
-    {
-        std::os::unix::fs::symlink(source, target)
-            .with_context(|| format!("Failed to create symlink: {}", target.display()))?;
+    if dry_run {
+        println!("  {} Would merge: {} ← {}", "→".cyan(), label, source_name);
+    } else {
+        fs::write(target, &merged)
+            .with_context(|| format!("Failed to write merged result: {}", target.display()))?;
+        println!("  {} Merged: {} ← {}", "→".cyan(), label, source_name);
     }
 
-    println!(
-        "  {} Linked: {} → {}",
-        "→".cyan(),
-        label,
-        source_name,
-    );
     Ok(())
 }
 
@@ -376,35 +314,11 @@ pub fn status(dotfiles: &[DotfileEntry], base_dir: &Path) -> Result<()> {
                     println!("  {} {} (not synced)", "○".dimmed(), label);
                 }
             }
-            DotfileBehavior::Link => {
-                if target.is_symlink() {
-                    if let Ok(existing) = fs::read_link(&target) {
-                        if normalize_path(&existing) == normalize_path(&source) {
-                            println!(
-                                "  {} {} → {}",
-                                "✓".green(),
-                                label,
-                                entry.source
-                            );
-                        } else {
-                            println!(
-                                "  {} {} (linked to different source: {})",
-                                "✗".red(),
-                                label,
-                                existing.display()
-                            );
-                        }
-                    } else {
-                        println!("  {} {} (unreadable symlink)", "✗".red(), label);
-                    }
-                } else if target.exists() {
-                    println!(
-                        "  {} {} (exists but not a symlink)",
-                        "⚠".yellow(),
-                        label
-                    );
+            DotfileBehavior::Merge => {
+                if target.exists() {
+                    println!("  {} {} (merge target exists)", "✓".green(), label);
                 } else {
-                    println!("  {} {} (not linked)", "○".dimmed(), label);
+                    println!("  {} {} (not synced)", "○".dimmed(), label);
                 }
             }
         }

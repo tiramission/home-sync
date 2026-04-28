@@ -49,9 +49,12 @@ packages = [
 #   type:     "file"（默认）或 "persist"
 #     - file:    target 为绝对路径，支持 ~ 展开
 #     - persist: target 为相对于 ~/scoop/persist/ 的路径
-#   behavior: "copy"（默认）或 "link"
-#     - copy: 复制文件到目标路径，内容不同时备份并覆写
-#     - link: 创建符号链接
+#   behavior: "copy"（默认）或 "merge"
+#     - copy:  复制文件到目标路径，内容不同时备份并覆写
+#     - merge: 深度合并文件内容（需要指定 format）
+#   format:   合并格式，behavior = "merge" 时必填
+#     - json:  JSON 深度合并（对象递归合并，数组/标量源覆盖目标）
+#     - yaml:  YAML 深度合并（同 JSON 语义）
 
 # 默认 type = "file"，behavior = "copy"，均可省略
 [[dotfiles]]
@@ -74,27 +77,25 @@ target = "~/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/Local
 source = "dotfiles/starship.toml"
 target = "~/.config/starship.toml"
 
-# 使用符号链接而非复制
+# 使用 merge 行为深度合并 JSON 文件
 # [[dotfiles]]
-# source = "dotfiles/some-config"
-# target = "~/.config/some-config"
-# behavior = "link"
+# source = "dotfiles/settings-partial.json"
+# target = "~/AppData/Roaming/Code/User/settings.json"
+# behavior = "merge"
+# format = "json"
+
+# 使用 merge 行为深度合并 YAML 文件
+# [[dotfiles]]
+# source = "dotfiles/config-partial.yaml"
+# target = "~/.config/some-app/config.yaml"
+# behavior = "merge"
+# format = "yaml"
 
 # Scoop persist 示例
 # type = "persist" 将文件链接到 ~/scoop/persist/<target>
 # Scoop 更新应用时不会覆盖 persist 目录中的文件
 #
 # [[dotfiles]]
-# source = "dotfiles/mihomo/config.yaml"
-# target = "mihomo/config.yaml"
-# type = "persist"
-#   → 链接到 ~/scoop/persist/mihomo/config.yaml
-#
-# [[dotfiles]]
-# source = "dotfiles/neovim/init.lua"
-# target = "neovim/init.lua"
-# type = "persist"
-#   → 链接到 ~/scoop/persist/neovim/init.lua
 # source = "dotfiles/mihomo/config.yaml"
 # target = "mihomo/config.yaml"
 # type = "persist"

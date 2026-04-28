@@ -5,11 +5,9 @@ mod scoop;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// home-sync — A declarative user environment manager for Windows.
-///
-/// Sync dotfiles and Scoop packages with a single config file.
 #[derive(Parser)]
 #[command(name = "home-sync", version, about)]
 struct Cli {
@@ -59,18 +57,28 @@ fn main() -> Result<()> {
             dry_run,
             delete,
             backup,
-        } => cmd_sync(&cli.config, scoop_only, dotfiles_only, dry_run, delete, backup),
+        } => cmd_sync(&cli.config, SyncArgs { scoop_only, dotfiles_only, dry_run, delete, backup }),
     }
 }
 
-/// Initialize a new config.toml from the embedded example.
+struct SyncArgs {
+    scoop_only: bool,
+    dotfiles_only: bool,
+    dry_run: bool,
+    delete: bool,
+    backup: bool,
+}
+
+fn resolve_base_dir(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_path_buf()
+}
+
 fn cmd_init(config_path: &PathBuf) -> Result<()> {
     if config_path.exists() {
-        println!(
-            "{} Config file already exists: {}",
-            "⚠".yellow(),
-            config_path.display()
-        );
+        println!("{} Config file already exists: {}", "⚠".yellow(), config_path.display());
         return Ok(());
     }
 
@@ -78,112 +86,72 @@ fn cmd_init(config_path: &PathBuf) -> Result<()> {
     std::fs::write(config_path, example)
         .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
 
-    println!(
-        "{} Created config file: {}",
-        "✓".green(),
-        config_path.display()
-    );
+    println!("{} Created config file: {}", "✓".green(), config_path.display());
     println!(
         "{}",
-        "Edit config.toml to declare your Scoop packages and dotfiles, then run `home-sync sync`."
-            .dimmed()
+        "Edit config.toml to declare your Scoop packages and dotfiles, then run `home-sync sync`.".dimmed()
     );
     Ok(())
 }
 
-/// Show the current status of the environment.
 fn cmd_status(config_path: &PathBuf) -> Result<()> {
     let config = config::Config::load(config_path)?;
-    let base_dir = config_path
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .to_path_buf();
+    let base_dir = resolve_base_dir(config_path);
 
-    // Scoop status
     if let Some(ref scoop_config) = config.scoop {
         println!("{}", "Scoop status:".bold());
-        let scoop_available = which::which("scoop").is_ok();
-        if scoop_available {
+        if which::which("scoop").is_ok() {
             println!("  {} Scoop is installed", "✓".green());
             println!("  {} Buckets: {}", "→".cyan(), scoop_config.buckets.len());
-            println!(
-                "  {} Packages: {}",
-                "→".cyan(),
-                scoop_config.packages.len()
-            );
+            println!("  {} Packages: {}", "→".cyan(), scoop_config.packages.len());
         } else {
             println!("  {} Scoop is not installed", "✗".red());
         }
         println!();
     }
 
-    // Dotfile status
     dotfiles::status(&config.dotfiles, &base_dir)?;
-
     Ok(())
 }
 
-/// Run the full sync process.
-fn cmd_sync(config_path: &PathBuf, scoop_only: bool, dotfiles_only: bool, dry_run: bool, delete: bool, backup: bool) -> Result<()> {
-    if delete && backup {
+fn cmd_sync(config_path: &PathBuf, args: SyncArgs) -> Result<()> {
+    if args.delete && args.backup {
         anyhow::bail!("Cannot specify both --delete and --backup");
     }
-    let conflict = if delete {
+
+    let conflict = if args.delete {
         dotfiles::ConflictAction::Delete
-    } else if backup {
+    } else if args.backup {
         dotfiles::ConflictAction::Backup
     } else {
         dotfiles::ConflictAction::Prompt
     };
 
     let config = config::Config::load(config_path)?;
-    let base_dir = config_path
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .to_path_buf();
+    let base_dir = resolve_base_dir(config_path);
 
-    let do_scoop = !dotfiles_only;
-    let do_dotfiles = !scoop_only;
-
-    println!(
-        "{}",
-        "╔══════════════════════════════════════╗".cyan()
-    );
-    println!(
-        "{}",
-        "║        home-sync — Environment       ║".cyan()
-    );
-    println!(
-        "{}",
-        "╚══════════════════════════════════════╝".cyan()
-    );
-    if dry_run {
-        println!(
-            "{}",
-            "  [DRY RUN] No changes will be made.".yellow().bold()
-        );
+    println!("{}", "╔══════════════════════════════════════╗".cyan());
+    println!("{}", "║        home-sync — Environment       ║".cyan());
+    println!("{}", "╚══════════════════════════════════════╝".cyan());
+    if args.dry_run {
+        println!("{}", "  [DRY RUN] No changes will be made.".yellow().bold());
     }
     println!();
 
-    // Sync Scoop
-    if do_scoop {
+    if !args.dotfiles_only {
         if let Some(ref scoop_config) = config.scoop {
-            scoop::sync(scoop_config, dry_run)?;
+            scoop::sync(scoop_config, args.dry_run)?;
         } else {
             println!("{}", "No Scoop configuration found, skipping.".dimmed());
         }
         println!();
     }
 
-    // Sync dotfiles
-    if do_dotfiles {
-        dotfiles::sync(&config.dotfiles, &base_dir, dry_run, &conflict)?;
+    if !args.scoop_only {
+        dotfiles::sync(&config.dotfiles, &base_dir, args.dry_run, &conflict)?;
         println!();
     }
 
-    println!(
-        "{}",
-        "All done! Your environment is in sync.".green().bold()
-    );
+    println!("{}", "All done! Your environment is in sync.".green().bold());
     Ok(())
 }

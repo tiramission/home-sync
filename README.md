@@ -15,7 +15,7 @@
 ## 功能特性
 
 - 📦 **Scoop 管理** — 声明 buckets 和 packages，自动安装缺失的、卸载多余的（需确认）
-- 📄 **Dotfile 同步** — 复制或符号链接仓库文件到 Windows 目标路径，冲突时自动备份
+- 📄 **Dotfile 同步** — 复制或深度合并仓库文件到 Windows 目标路径，冲突时可选删除或备份
 - ⚡ **批量对比** — 一次获取已安装列表，内存中对比，快速高效
 - 🚀 **一条命令** — `home-sync sync` 完成所有同步
 - 📋 **状态查看** — `home-sync status` 查看当前环境状态
@@ -97,6 +97,8 @@ home-sync sync
 | `home-sync sync --scoop-only` | 仅同步 Scoop |
 | `home-sync sync --dotfiles-only` | 仅同步 Dotfiles |
 | `home-sync sync --dry-run` | 预览模式，不实际执行 |
+| `home-sync sync --delete` | 冲突时直接删除目标文件 |
+| `home-sync sync --backup` | 冲突时备份目标文件为 `.bak` |
 | `home-sync status` | 查看当前环境状态 |
 
 ### 全局选项
@@ -122,15 +124,16 @@ home-sync sync
 1. 解析 `~` 为用户主目录
 2. 自动创建目标路径的父目录
 3. 目标已存在且内容相同 → 跳过
-4. 目标已存在但内容不同 → 备份为 `.bak` 后覆写
+4. 目标已存在但内容不同 → 提示删除/备份/跳过（或通过 `--delete`/`--backup` 自动处理）
 5. 目标不存在 → 直接复制
 
-**`behavior = "link"` — 符号链接**
+**`behavior = "merge"` — 深度合并（JSON/YAML）**
 
-1. 自动创建目标路径的父目录
-2. 目标已是正确的符号链接 → 跳过
-3. 目标已存在但不同 → 备份为 `.bak` 后创建新链接
-4. 目标不存在 → 直接创建符号链接
+1. 解析 `~` 为用户主目录
+2. 自动创建目标路径的父目录
+3. 目标不存在 → 直接复制源文件
+4. 目标已存在 → 解析源和目标，深度合并后写入
+5. 合并规则：对象递归合并，数组和标量由源覆盖目标
 
 ## 配置格式
 
@@ -161,14 +164,15 @@ packages = [
 # type = "file"（默认，可省略）：target 为绝对路径，支持 ~ 展开
 # behavior = "copy"（默认，可省略）：复制文件到目标路径
 [[dotfiles]]
-source = "dotfiles/.gitconfig"              # 仓库中的路径（相对于项目根目录）
-target = "~/.gitconfig"                     # Windows 目标路径（支持 ~）
+source = "dotfiles/.gitconfig"
+target = "~/.gitconfig"
 
-# 使用符号链接而非复制
+# 使用 merge 行为深度合并 JSON 文件（需要指定 format）
 [[dotfiles]]
-source = "dotfiles/some-config"
-target = "~/.config/some-config"
-behavior = "link"
+source = "dotfiles/settings-partial.json"
+target = "~/AppData/Roaming/Code/User/settings.json"
+behavior = "merge"
+format = "json"
 
 # type = "persist"：target 为相对于 ~/scoop/persist/ 的路径
 [[dotfiles]]
@@ -182,8 +186,12 @@ type = "persist"
 - `persist` — `target` 为相对于 `~/scoop/persist/` 的路径
 
 `behavior` — 同步方式：
-- `copy`（默认）— 复制文件到目标路径，内容不同时自动备份并覆写
-- `link` — 创建符号链接
+- `copy`（默认）— 复制文件到目标路径，内容不同时提示删除或备份
+- `merge` — 深度合并文件内容（需要指定 `format`），对象递归合并，数组和标量由源覆盖
+
+`format` — 合并格式（`behavior = "merge"` 时必填）：
+- `json` — JSON 深度合并
+- `yaml` — YAML 深度合并
 
 完整示例参见 [`config.example.toml`](config.example.toml)。
 
@@ -191,7 +199,6 @@ type = "persist"
 
 - Windows 10/11
 - [Scoop](https://scoop.sh/)（缺失时自动安装）
-- 开启开发者模式（用于无需管理员权限创建符号链接）
 
 ## License
 
