@@ -1,0 +1,65 @@
+# home-sync 配置文件示例
+# 将此文件复制为 config.toml 并根据需要修改
+
+# Scoop 软件包声明
+[scoop]
+# Scoop buckets（软件源）
+# 每个 bucket 可以是简单的名称字符串，也可以是 {name, source} 对来指定自定义源
+buckets = [
+    "main",
+    "extras",
+    "versions",
+    "nerd-fonts",
+    # 自定义 bucket 示例：
+    # { name = "my-bucket", source = "https://github.com/user/my-bucket" },
+]
+
+# 要安装的软件包列表
+# 每个包可以是简单的名称字符串，也可以是 {name, bucket} 对来指定 bucket 来源
+packages = [
+    "git",
+    "7zip",
+    "curl",
+    "ripgrep",
+    "fd",
+    "bat",
+    "eza",
+    "starship",
+    "neovim",
+    "nodejs-lts",
+    "python",
+    "rustup",
+    "vscode",
+    "windows-terminal",
+    "powertoys",
+    "everything",
+    "ditto",
+    "flow-launcher",
+    # 指定 bucket 来源的包示例：
+    # { name = "zig", bucket = "main" },
+    # { name = "my-tool", bucket = "my-bucket" },
+]
+
+# Dotfiles 声明
+# 每个条目定义一个符号链接映射
+# source: 仓库中的文件路径（相对于本项目根目录）
+# target: Windows 上的目标路径（支持 ~ 表示用户主目录）
+[[dotfiles]]
+source = "dotfiles/.gitconfig"
+target = "~/.gitconfig"
+
+[[dotfiles]]
+source = "dotfiles/.bashrc"
+target = "~/.bashrc"
+
+[[dotfiles]]
+source = "dotfiles/settings.json"
+target = "~/AppData/Roaming/Code/User/settings.json"
+
+[[dotfiles]]
+source = "dotfiles/terminal-settings.json"
+target = "~/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"
+
+[[dotfiles]]
+source = "dotfiles/starship.toml"
+target = "~/.config/starship.toml"

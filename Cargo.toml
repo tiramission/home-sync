@@ -1,0 +1,15 @@
+[package]
+name = "home-sync"
+version = "0.1.0"
+edition = "2021"
+description = "A declarative user environment manager for Windows — sync dotfiles and Scoop packages with a single config file."
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+which = "7"
+colored = "2"
+dirs = "5"
