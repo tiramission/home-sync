@@ -63,3 +63,18 @@ target = "~/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/Local
 [[dotfiles]]
 source = "dotfiles/starship.toml"
 target = "~/.config/starship.toml"
+
+# Scoop persist 示例
+# 使用 persist 字段将文件链接到 ~/scoop/persist/<app>/ 目录下
+# 这样 Scoop 在更新应用时不会覆盖你的配置文件
+# persist 路径格式: "<app-name>/<relative-path>"
+#
+# [[dotfiles]]
+# source = "dotfiles/mihomo/config.yaml"
+# persist = "mihomo/config.yaml"
+#   → 链接到 ~/scoop/persist/mihomo/config.yaml
+#
+# [[dotfiles]]
+# source = "dotfiles/neovim/init.lua"
+# persist = "neovim/init.lua"
+#   → 链接到 ~/scoop/persist/neovim/init.lua

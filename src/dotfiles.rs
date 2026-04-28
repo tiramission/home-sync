@@ -3,19 +3,29 @@ use colored::Colorize;
 use std::fs;
 use std::path::Path;
 
-use crate::config::{Config, DotfileEntry};
+use crate::config::DotfileEntry;
+
+/// Get a display label for the target (persist or target).
+fn target_label(entry: &DotfileEntry) -> String {
+    if !entry.persist.is_empty() {
+        format!("persist:{}", entry.persist)
+    } else {
+        entry.target.clone()
+    }
+}
 
 /// Sync a single dotfile: create parent dirs and symlink source → target.
 fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> {
     let source = base_dir.join(&entry.source);
-    let target = Config::resolve_target(&entry.target)?;
+    let target = entry.resolve_target()?;
+    let label = target_label(entry);
 
     // Ensure the source file exists
     if !source.exists() {
         println!(
             "  {} Source not found: {} (skipping)",
             "⚠".yellow(),
-            entry.source
+            &entry.source
         );
         return Ok(());
     }
@@ -37,7 +47,7 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
                     println!(
                         "  {} Already linked: {} → {}",
                         "✓".green(),
-                        entry.target,
+                        label,
                         entry.source
                     );
                     return Ok(());
@@ -57,14 +67,14 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
             println!(
                 "  {} Would back up existing: {} → {}",
                 "⚠".yellow(),
-                entry.target,
+                label,
                 backup.display()
             );
         } else {
             println!(
                 "  {} Backing up existing: {} → {}",
                 "⚠".yellow(),
-                entry.target,
+                label,
                 backup.display()
             );
             fs::rename(&target, &backup)
@@ -76,7 +86,7 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
         println!(
             "  {} Would link: {} → {}",
             "→".cyan(),
-            entry.target,
+            label,
             entry.source
         );
         return Ok(());
@@ -104,7 +114,7 @@ fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool) -> Result<()> 
     println!(
         "  {} Linked: {} → {}",
         "→".cyan(),
-        entry.target,
+        label,
         entry.source
     );
     Ok(())
@@ -130,10 +140,11 @@ pub fn status(dotfiles: &[DotfileEntry], base_dir: &Path) -> Result<()> {
     println!("{}", "Dotfile status:".bold());
     for entry in dotfiles {
         let source = base_dir.join(&entry.source);
-        let target = Config::resolve_target(&entry.target)?;
+        let target = entry.resolve_target()?;
+        let label = target_label(entry);
 
         if !source.exists() {
-            println!("  {} {} (source missing)", "⚠".yellow(), entry.source);
+            println!("  {} {} (source missing)", "⚠".yellow(), &entry.source);
             continue;
         }
 
@@ -143,28 +154,28 @@ pub fn status(dotfiles: &[DotfileEntry], base_dir: &Path) -> Result<()> {
                     println!(
                         "  {} {} → {}",
                         "✓".green(),
-                        entry.target,
+                        label,
                         entry.source
                     );
                 } else {
                     println!(
                         "  {} {} (linked to different source: {})",
                         "✗".red(),
-                        entry.target,
+                        label,
                         existing.display()
                     );
                 }
             } else {
-                println!("  {} {} (unreadable symlink)", "✗".red(), entry.target);
+                println!("  {} {} (unreadable symlink)", "✗".red(), label);
             }
         } else if target.exists() {
             println!(
                 "  {} {} (exists but not a symlink)",
                 "⚠".yellow(),
-                entry.target
+                label
             );
         } else {
-            println!("  {} {} (not linked)", "○".dimmed(), entry.target);
+            println!("  {} {} (not linked)", "○".dimmed(), label);
         }
     }
     Ok(())

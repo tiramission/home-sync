@@ -89,7 +89,34 @@ pub struct ScoopConfig {
 #[derive(Debug, Deserialize)]
 pub struct DotfileEntry {
     pub source: String,
+    /// Target path on disk. Supports `~` for home directory.
+    /// Mutually exclusive with `persist`.
+    #[serde(default)]
     pub target: String,
+    /// Scoop persist path relative to `~/scoop/persist/`.
+    /// Mutually exclusive with `target`.
+    /// Example: "mihomo/config.yaml" → `~/scoop/persist/mihomo/config.yaml`
+    #[serde(default)]
+    pub persist: String,
+}
+
+impl DotfileEntry {
+    /// Resolve the effective target path for this dotfile entry.
+    /// If `persist` is set, resolves to `~/scoop/persist/<persist>`.
+    /// Otherwise, resolves `target` with `~` expansion.
+    pub fn resolve_target(&self) -> Result<PathBuf> {
+        if !self.persist.is_empty() {
+            let home = dirs::home_dir().context("Could not determine home directory")?;
+            Ok(home.join("scoop").join("persist").join(&self.persist))
+        } else if !self.target.is_empty() {
+            Config::resolve_target(&self.target)
+        } else {
+            anyhow::bail!(
+                "Dotfile entry must have either 'target' or 'persist' set for source: {}",
+                self.source
+            );
+        }
+    }
 }
 
 impl Config {
