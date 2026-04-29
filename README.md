@@ -127,7 +127,7 @@ home-sync sync
 4. 目标已存在但内容不同 → 提示删除/备份/跳过（或通过 `--delete`/`--backup` 自动处理）
 5. 目标不存在 → 直接复制
 
-**`behavior = "merge"` — 深度合并（JSON/YAML/GitConfig）**
+**`behavior = "merge"` — 深度合并（JSON/YAML/GitConfig/TOML）**
 
 1. 解析 `~` 为用户主目录
 2. 自动创建目标路径的父目录
@@ -200,6 +200,7 @@ type = "persist"
 - `json` — JSON 深度合并
 - `yaml` — YAML 深度合并
 - `gitconfig` — Git 配置文件合并（同名 section 的 key 由源覆盖，新 section 追加）
+- `toml` — TOML 深度合并
 
 完整示例参见 [`config.example.toml`](config.example.toml)。
 

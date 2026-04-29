@@ -216,6 +216,24 @@ fn deep_merge_gitconfig(
     Ok(target.to_string())
 }
 
+/// Deep-merge two TOML values. Tables are merged recursively; arrays and scalars
+/// are replaced by source.
+fn deep_merge_toml(target: toml::Value, source: toml::Value) -> toml::Value {
+    use toml::Value;
+    match (target, source) {
+        (Value::Table(mut t_map), Value::Table(s_map)) => {
+            for (key, s_val) in s_map {
+                match t_map.remove(&key) {
+                    Some(t_val) => { t_map.insert(key, deep_merge_toml(t_val, s_val)); }
+                    None => { t_map.insert(key, s_val); }
+                }
+            }
+            Value::Table(t_map)
+        }
+        (_target, source) => source,
+    }
+}
+
 /// Sync a single dotfile entry.
 fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool, conflict: &ConflictAction) -> Result<()> {
     entry.validate()?;
@@ -283,7 +301,7 @@ fn sync_copy(
     Ok(())
 }
 
-/// Sync via deep merge (JSON or YAML).
+/// Sync via deep merge (JSON, YAML, GitConfig, or TOML).
 fn sync_merge(
     source: &Path,
     target: &Path,
@@ -333,6 +351,14 @@ fn sync_merge(
         MergeFormat::GitConfig => {
             deep_merge_gitconfig(&target_content, &source_content)
                 .with_context(|| format!("Failed to merge gitconfig: {} ← {}", target.display(), source.display()))?
+        }
+        MergeFormat::Toml => {
+            let src: toml::Value = toml::from_str(&source_content)
+                .with_context(|| format!("Failed to parse source TOML: {}", source.display()))?;
+            let tgt: toml::Value = toml::from_str(&target_content)
+                .with_context(|| format!("Failed to parse target TOML: {}", target.display()))?;
+            let result = deep_merge_toml(tgt, src);
+            toml::to_string_pretty(&result)?
         }
     };
 

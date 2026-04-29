@@ -56,6 +56,7 @@ packages = [
 #     - json:       JSON 深度合并（对象递归合并，数组/标量源覆盖目标）
 #     - yaml:       YAML 深度合并（同 JSON 语义）
 #     - gitconfig:  Git 配置文件合并（同名 section 的 key 由源覆盖，新 section 追加）
+#     - toml:       TOML 深度合并（同 JSON 语义）
 
 # 默认 type = "file"，behavior = "copy"，均可省略
 [[dotfiles]]

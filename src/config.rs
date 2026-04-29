@@ -114,6 +114,7 @@ pub enum MergeFormat {
     Json,
     Yaml,
     GitConfig,
+    Toml,
 }
 
 /// A single dotfile mapping: source (in repo) → target (on disk).
@@ -150,7 +151,7 @@ impl DotfileEntry {
     pub fn validate(&self) -> Result<()> {
         if self.behavior == DotfileBehavior::Merge && self.format.is_none() {
             anyhow::bail!(
-                "Dotfile entry '{}' uses merge behavior but missing `format` (must be \"json\", \"yaml\", or \"gitconfig\")",
+                "Dotfile entry '{}' uses merge behavior but missing `format` (must be \"json\", \"yaml\", \"gitconfig\", or \"toml\")",
                 self.source
             );
         }
