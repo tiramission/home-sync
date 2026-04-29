@@ -3,3 +3,4 @@
 *.pdb
 config.toml
 dotfiles
+temps
