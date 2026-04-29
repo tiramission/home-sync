@@ -69,11 +69,11 @@ struct SyncArgs {
     backup: bool,
 }
 
-fn resolve_base_dir(config_path: &Path) -> PathBuf {
-    config_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .to_path_buf()
+fn resolve_base_dir(config_path: &Path) -> Result<PathBuf> {
+    let abs = config_path
+        .canonicalize()
+        .with_context(|| format!("Failed to resolve config path: {}", config_path.display()))?;
+    Ok(abs.parent().unwrap_or(Path::new(".")).to_path_buf())
 }
 
 fn cmd_init(config_path: &PathBuf) -> Result<()> {
@@ -96,7 +96,7 @@ fn cmd_init(config_path: &PathBuf) -> Result<()> {
 
 fn cmd_status(config_path: &PathBuf) -> Result<()> {
     let config = config::Config::load(config_path)?;
-    let base_dir = resolve_base_dir(config_path);
+    let base_dir = resolve_base_dir(config_path)?;
 
     if let Some(ref scoop_config) = config.scoop {
         println!("{}", "Scoop status:".bold());
@@ -128,7 +128,7 @@ fn cmd_sync(config_path: &PathBuf, args: SyncArgs) -> Result<()> {
     };
 
     let config = config::Config::load(config_path)?;
-    let base_dir = resolve_base_dir(config_path);
+    let base_dir = resolve_base_dir(config_path)?;
 
     println!("{}", "╔══════════════════════════════════════╗".cyan());
     println!("{}", "║        home-sync — Environment       ║".cyan());
