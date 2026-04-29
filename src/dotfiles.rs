@@ -139,6 +139,83 @@ fn deep_merge_yaml(target: serde_yaml::Value, source: serde_yaml::Value) -> serd
     }
 }
 
+/// Deep-merge two git config files. For sections that exist in both, source keys
+/// overwrite target keys; keys only in target are preserved. Sections only in
+/// source are appended to target.
+fn deep_merge_gitconfig(
+    target_str: &str,
+    source_str: &str,
+) -> Result<String> {
+    use gix_config::File;
+    use std::str::FromStr;
+
+    let mut target = File::from_str(target_str)
+        .map_err(|e| anyhow::anyhow!("Failed to parse target gitconfig: {}", e))?;
+    let source = File::from_str(source_str)
+        .map_err(|e| anyhow::anyhow!("Failed to parse source gitconfig: {}", e))?;
+
+    // Collect all source sections with owned data
+    let source_sections: Vec<(String, Option<Vec<u8>>, Vec<(String, Vec<u8>)>)> = source
+        .sections_and_ids()
+        .map(|(section, _id)| {
+            let header = section.header();
+            let name = header.name().to_string();
+            let subsection = header.subsection_name().map(|s| s.to_vec());
+            let kvs: Vec<(String, Vec<u8>)> = section
+                .value_names()
+                .map(|vn| {
+                    let key = vn.as_ref().to_string();
+                    let value = section.value(vn.as_ref())
+                        .map(|v| v.to_vec())
+                        .unwrap_or_default();
+                    (key, value)
+                })
+                .collect();
+            (name, subsection, kvs)
+        })
+        .collect();
+
+    for (section_name, subsection, kvs) in &source_sections {
+        // Check if target has a matching section
+        let target_has_section = target
+            .sections_by_name_and_filter(section_name.as_str(), |_| true)
+            .map(|mut iter| {
+                iter.any(|section| {
+                    let sec_sub = section.header().subsection_name();
+                    match (subsection.as_ref(), sec_sub) {
+                        (Some(want), Some(have)) => {
+                            want.as_slice() == <bstr::BStr as AsRef<[u8]>>::as_ref(have)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+                })
+            })
+            .unwrap_or(false);
+
+        if !target_has_section {
+            let sub_cow = subsection.clone().map(|s| bstr::BString::from(s).into());
+            let _new_section = target
+                .new_section(section_name.clone(), sub_cow)
+                .map_err(|e| anyhow::anyhow!("Failed to create section: {}", e))?;
+        }
+
+        // Set all key-value pairs using owned data
+        let sub_bstr = subsection.as_ref().map(|s| bstr::BStr::new(s.as_slice()));
+        for (key, value) in kvs {
+            let value_bstr = bstr::BStr::new(value.as_slice());
+            let _ = target.set_raw_value_by(
+                section_name.clone(),
+                sub_bstr,
+                key.clone(),
+                value_bstr,
+            );
+        }
+    }
+
+    Ok(target.to_string())
+}
+
 /// Sync a single dotfile entry.
 fn sync_one(entry: &DotfileEntry, base_dir: &Path, dry_run: bool, conflict: &ConflictAction) -> Result<()> {
     entry.validate()?;
@@ -252,6 +329,10 @@ fn sync_merge(
                 .with_context(|| format!("Failed to parse target YAML: {}", target.display()))?;
             let result = deep_merge_yaml(tgt, src);
             serde_yaml::to_string(&result)?
+        }
+        MergeFormat::GitConfig => {
+            deep_merge_gitconfig(&target_content, &source_content)
+                .with_context(|| format!("Failed to merge gitconfig: {} ← {}", target.display(), source.display()))?
         }
     };
 

@@ -127,13 +127,13 @@ home-sync sync
 4. 目标已存在但内容不同 → 提示删除/备份/跳过（或通过 `--delete`/`--backup` 自动处理）
 5. 目标不存在 → 直接复制
 
-**`behavior = "merge"` — 深度合并（JSON/YAML）**
+**`behavior = "merge"` — 深度合并（JSON/YAML/GitConfig）**
 
 1. 解析 `~` 为用户主目录
 2. 自动创建目标路径的父目录
 3. 目标不存在 → 直接复制源文件
 4. 目标已存在 → 解析源和目标，深度合并后写入
-5. 合并规则：对象递归合并，数组和标量由源覆盖目标
+5. 合并规则：对象/Mapping 递归合并，数组/标量由源覆盖目标
 
 ## 配置格式
 
@@ -174,6 +174,13 @@ target = "~/AppData/Roaming/Code/User/settings.json"
 behavior = "merge"
 format = "json"
 
+# 使用 merge 行为合并 Git 配置文件
+[[dotfiles]]
+source = "dotfiles/.gitconfig-partial"
+target = "~/.gitconfig"
+behavior = "merge"
+format = "gitconfig"
+
 # type = "persist"：target 为相对于 ~/scoop/persist/ 的路径
 [[dotfiles]]
 source = "dotfiles/mihomo/config.yaml"
@@ -192,6 +199,7 @@ type = "persist"
 `format` — 合并格式（`behavior = "merge"` 时必填）：
 - `json` — JSON 深度合并
 - `yaml` — YAML 深度合并
+- `gitconfig` — Git 配置文件合并（同名 section 的 key 由源覆盖，新 section 追加）
 
 完整示例参见 [`config.example.toml`](config.example.toml)。
 

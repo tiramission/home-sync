@@ -53,8 +53,9 @@ packages = [
 #     - copy:  复制文件到目标路径，内容不同时备份并覆写
 #     - merge: 深度合并文件内容（需要指定 format）
 #   format:   合并格式，behavior = "merge" 时必填
-#     - json:  JSON 深度合并（对象递归合并，数组/标量源覆盖目标）
-#     - yaml:  YAML 深度合并（同 JSON 语义）
+#     - json:       JSON 深度合并（对象递归合并，数组/标量源覆盖目标）
+#     - yaml:       YAML 深度合并（同 JSON 语义）
+#     - gitconfig:  Git 配置文件合并（同名 section 的 key 由源覆盖，新 section 追加）
 
 # 默认 type = "file"，behavior = "copy"，均可省略
 [[dotfiles]]
@@ -90,6 +91,13 @@ target = "~/.config/starship.toml"
 # target = "~/.config/some-app/config.yaml"
 # behavior = "merge"
 # format = "yaml"
+
+# 使用 merge 行为合并 Git 配置文件
+# [[dotfiles]]
+# source = "dotfiles/.gitconfig-partial"
+# target = "~/.gitconfig"
+# behavior = "merge"
+# format = "gitconfig"
 
 # Scoop persist 示例
 # type = "persist" 将文件链接到 ~/scoop/persist/<target>
